@@ -22,6 +22,7 @@ use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
 
 pub use context::TaskContext;
+use crate::config::SYSCALL_NUM;
 
 /// The task manager, where all the tasks are managed.
 ///
@@ -45,6 +46,9 @@ pub struct TaskManagerInner {
     tasks: [TaskControlBlock; MAX_APP_NUM],
     /// id of current `Running` task
     current_task: usize,
+    /// 记录不同系统调用的次数
+    /// from GPT: 注意要区分不同的app，因为需要按照任务分别进行统计
+    syscall_count: [[isize ; SYSCALL_NUM]; MAX_APP_NUM],
 }
 
 lazy_static! {
@@ -59,12 +63,15 @@ lazy_static! {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
             task.task_status = TaskStatus::Ready;
         }
+        // init syscall_count
+        let syscall_count = [[0; SYSCALL_NUM]; MAX_APP_NUM];
         TaskManager {
             num_app,
             inner: unsafe {
                 UPSafeCell::new(TaskManagerInner {
                     tasks,
                     current_task: 0,
+                    syscall_count
                 })
             },
         }
@@ -135,6 +142,21 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+
+    /// 增加某个系统调用的次数
+    fn add_syscall(&self, id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        // 更新对应的计数器
+        inner.syscall_count[current][id] += 1;
+    }
+
+    /// 获取某个系统调用的次数
+    fn get_syscall_count(&self, id: usize) -> isize {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.syscall_count[current][id]
+    }
 }
 
 /// Run the first task in task list.
@@ -168,4 +190,14 @@ pub fn suspend_current_and_run_next() {
 pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
+}
+
+/// 增加某个系统调用的次数
+pub fn add_syscall(id: usize) {
+    TASK_MANAGER.add_syscall(id);
+}
+
+/// 获取某个系统调用的次数
+pub fn get_syscall_count(id: usize) -> isize {
+    TASK_MANAGER.get_syscall_count(id)
 }
