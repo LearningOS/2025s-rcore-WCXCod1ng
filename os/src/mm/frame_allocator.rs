@@ -17,7 +17,7 @@ pub struct FrameTracker {
 impl FrameTracker {
     /// Create a new FrameTracker
     pub fn new(ppn: PhysPageNum) -> Self {
-        // page cleaning
+        // page cleaning，在正式分配之前会将这一页的内容清空
         let bytes_array = ppn.get_bytes_array();
         for i in bytes_array {
             *i = 0;
@@ -32,6 +32,7 @@ impl Debug for FrameTracker {
     }
 }
 
+// 为FrameTracker实现了Drop trait之后，当离开作用于，自动调用frame_dealloc，执行真正的归还物理页
 impl Drop for FrameTracker {
     fn drop(&mut self) {
         frame_dealloc(self.ppn);
@@ -45,9 +46,9 @@ trait FrameAllocator {
 }
 /// an implementation for frame allocator
 pub struct StackFrameAllocator {
-    current: usize,
-    end: usize,
-    recycled: Vec<usize>,
+    current: usize, // 物理页号的左边界（包含）
+    end: usize, // 物理页号的右边界（不包含）
+    recycled: Vec<usize>, // 已经被分配出去的页号（以栈形式存储）
 }
 
 impl StackFrameAllocator {
@@ -99,8 +100,8 @@ pub fn init_frame_allocator() {
         fn ekernel();
     }
     FRAME_ALLOCATOR.exclusive_access().init(
-        PhysAddr::from(ekernel as usize).ceil(),
-        PhysAddr::from(MEMORY_END).floor(),
+        PhysAddr::from(ekernel as usize).ceil(), // ekernel标识了内核空间的结束位置（不包含）
+        PhysAddr::from(MEMORY_END).floor(), // 用户进程最大空间（不包含）
     );
 }
 
@@ -109,7 +110,7 @@ pub fn frame_alloc() -> Option<FrameTracker> {
     FRAME_ALLOCATOR
         .exclusive_access()
         .alloc()
-        .map(FrameTracker::new)
+        .map(FrameTracker::new) // 实际返回的是一个FrameTracker
 }
 
 /// Deallocate a physical page frame with a given ppn

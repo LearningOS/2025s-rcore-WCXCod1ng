@@ -157,7 +157,7 @@ impl From<PhysPageNum> for PhysAddr {
 
 impl VirtPageNum {
     /// Get the indexes of the page table entry
-    pub fn indexes(&self) -> [usize; 3] {
+    pub fn indexes(&self) -> [usize; 3] {// 由于我们使用的是SV39，这里虚拟地址被三级页表表示，所以返回一个长度为3的数组，也即将虚拟页号按照9位划分成3段。每一段都代表了对应级的页表的下标（偏移、索引），用它就可以找到对应的页表项
         let mut vpn = self.0;
         let mut idx = [0usize; 3];
         for i in (0..3).rev() {
@@ -175,19 +175,21 @@ impl PhysAddr {
         unsafe { (self.0 as *mut T).as_mut().unwrap() }
     }
 }
+
+// 如下的方法给出而来利用ppn访问其对应的frame的一些API
 impl PhysPageNum {
     /// Get the reference of page table(array of ptes)
     pub fn get_pte_array(&self) -> &'static mut [PageTableEntry] {
-        let pa: PhysAddr = (*self).into();
-        unsafe { core::slice::from_raw_parts_mut(pa.0 as *mut PageTableEntry, 512) }
+        let pa: PhysAddr = (*self).into(); // 将物理页号转化为物理地址
+        unsafe { core::slice::from_raw_parts_mut(pa.0 as *mut PageTableEntry, 512) } // 从该地址开始，读取512个页表项
     }
     /// Get the reference of page(array of bytes)
     pub fn get_bytes_array(&self) -> &'static mut [u8] {
         let pa: PhysAddr = (*self).into();
-        unsafe { core::slice::from_raw_parts_mut(pa.0 as *mut u8, 4096) }
+        unsafe { core::slice::from_raw_parts_mut(pa.0 as *mut u8, 4096) } // 从该地址开始，读取512个u8数据
     }
     /// Get the mutable reference of physical address
-    pub fn get_mut<T>(&self) -> &'static mut T {
+    pub fn get_mut<T>(&self) -> &'static mut T { // 获取一个恰好放在一个物理页帧开头的类型为 T 的数据的可变引用
         let pa: PhysAddr = (*self).into();
         pa.get_mut()
     }
@@ -196,7 +198,7 @@ impl PhysPageNum {
 /// iterator for phy/virt page number
 pub trait StepByOne {
     /// step by one element(page number)
-    fn step(&mut self);
+    fn step(&mut self); // 页号+1
 }
 impl StepByOne for VirtPageNum {
     fn step(&mut self) {

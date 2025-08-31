@@ -9,7 +9,7 @@ pub fn get_num_app() -> usize {
 }
 
 /// get applications data
-pub fn get_app_data(app_id: usize) -> &'static [u8] {
+pub fn get_app_data(app_id: usize) -> &'static [u8] { // 得到的实际上是一个ELF格式的数据
     extern "C" {
         fn _num_app();
     }

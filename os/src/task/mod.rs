@@ -23,6 +23,8 @@ use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
 
 pub use context::TaskContext;
+use crate::config::MAX_SYSCALL_NUM;
+use crate::mm::MemorySet;
 
 /// The task manager, where all the tasks are managed.
 ///
@@ -46,6 +48,8 @@ struct TaskManagerInner {
     tasks: Vec<TaskControlBlock>,
     /// id of current `Running` task
     current_task: usize,
+    /// syscall trace info
+    syscall_count: Vec<[isize; MAX_SYSCALL_NUM]>
 }
 
 lazy_static! {
@@ -58,12 +62,16 @@ lazy_static! {
         for i in 0..num_app {
             tasks.push(TaskControlBlock::new(get_app_data(i), i));
         }
+        // init syscall_count
+        let mut syscall_count = Vec::new();
+        syscall_count.resize(num_app, [0; MAX_SYSCALL_NUM]);
         TaskManager {
             num_app,
             inner: unsafe {
                 UPSafeCell::new(TaskManagerInner {
                     tasks,
                     current_task: 0,
+                    syscall_count
                 })
             },
         }
@@ -153,6 +161,30 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+
+    /// 增加某个系统调用的次数
+    fn add_syscall(&self, id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        // 更新对应的计数器
+        inner.syscall_count[current][id] += 1;
+    }
+
+    /// 获取某个系统调用的次数
+    fn get_syscall_count(&self, id: usize) -> isize {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        inner.syscall_count[current][id]
+    }
+
+    /// 获取当前的任务控制块
+    fn with_map<F, V>(&self, mut f: F) -> V
+        where F: FnMut(&mut MemorySet) -> V
+    {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        f(&mut inner.tasks[current].memory_set)
+    }
 }
 
 /// Run the first task in task list.
@@ -201,4 +233,21 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// 增加某个系统调用的次数
+pub fn add_syscall(id: usize) {
+    TASK_MANAGER.add_syscall(id);
+}
+
+/// 获取某个系统调用的次数
+pub fn get_syscall_count(id: usize) -> isize {
+    TASK_MANAGER.get_syscall_count(id)
+}
+
+/// 获取当前任务控制块
+pub fn with_map<F, V>(f: F) -> V
+    where F: FnMut(&mut MemorySet) -> V
+{
+    TASK_MANAGER.with_map(f)
 }

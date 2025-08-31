@@ -33,6 +33,7 @@ pub struct TaskControlBlock {
 impl TaskControlBlock {
     /// get the trap context
     pub fn get_trap_cx(&self) -> &'static mut TrapContext {
+        // 初始化该应用的 Trap 上下文，由于它是在应用地址空间而不是在内核地址空间中，我们只能手动查页表找到 Trap 上下文实际被放在的物理页帧，再获得在用户空间的 Trap 上下文的可变引用用于初始化：
         self.trap_cx_ppn.get_mut()
     }
     /// get the user token
