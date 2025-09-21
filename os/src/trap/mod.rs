@@ -70,6 +70,9 @@ pub fn trap_handler() -> ! {
             // cx is changed during sys_exec, so we have to call it again
             cx = current_trap_cx();
             cx.x[10] = result as usize;
+
+            // 原来是如下的形式——直接赋值。但是因为sys_exec中将trap_cx重新赋值了（见TaskControlBlock::exec），导致原始的cx（它是一个引用）无效了，我们必须重新调用一次得到最新的trap_cx的引用，这样以来才能赋值
+            //             cx.x[10] = syscall(cx.x[17], [cx.x[10], cx.x[11], cx.x[12]]) as usize;
         }
         Trap::Exception(Exception::StoreFault)
         | Trap::Exception(Exception::StorePageFault)

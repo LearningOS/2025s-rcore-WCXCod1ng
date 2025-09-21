@@ -39,7 +39,7 @@ lazy_static! {
         unsafe {
             for _ in 0..num_app {
                 let mut end = start;
-                while end.read_volatile() != b'\0' {
+                while end.read_volatile() != b'\0' { // 在字符串后面添加“\0”，这是将来判断字符串结束的依据
                     end = end.add(1);
                 }
                 let slice = core::slice::from_raw_parts(start, end as usize - start as usize);
@@ -58,7 +58,7 @@ pub fn get_app_data_by_name(name: &str) -> Option<&'static [u8]> {
     let num_app = get_num_app();
     (0..num_app)
         .find(|&i| APP_NAMES[i] == name)
-        .map(get_app_data)
+        .map(get_app_data) // 简单遍历查找
 }
 ///list all apps
 pub fn list_apps() {

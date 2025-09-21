@@ -32,7 +32,7 @@ pub use context::TaskContext;
 pub use id::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
 pub use manager::add_task;
 pub use processor::{
-    current_task, current_trap_cx, current_user_token, run_tasks, schedule, take_current_task,
+    current_task, current_trap_cx, current_user_token, run_tasks, schedule, take_current_task, map_memory_set,
     Processor,
 };
 /// Suspend the current 'Running' task and run the next task in task list.
@@ -49,6 +49,8 @@ pub fn suspend_current_and_run_next() {
     // ---- release current PCB
 
     // push back to ready queue.
+    // 能够运行在Processor上，说明已经出队了，这里只需要入队
+    // 一个任务的流程是：在任务管理器队列中 -> 被调度到Processor上执行 -> 由于yield而重回到队列中；所以队列中的（目前）都是Ready状态的任务
     add_task(task);
     // jump to scheduling cycle
     schedule(task_cx_ptr);
@@ -71,6 +73,7 @@ pub fn exit_current_and_run_next(exit_code: i32) {
         panic!("All applications completed!");
     }
 
+    // 更新任务状态，写入退出码
     // **** access current TCB exclusively
     let mut inner = task.inner_exclusive_access();
     // Change status to Zombie
@@ -79,6 +82,7 @@ pub fn exit_current_and_run_next(exit_code: i32) {
     inner.exit_code = exit_code;
     // do not move to its parent but under initproc
 
+    // 将该进程的子进程连接到initproc上
     // ++++++ access initproc TCB exclusively
     {
         let mut initproc_inner = INITPROC.inner_exclusive_access();
@@ -98,6 +102,7 @@ pub fn exit_current_and_run_next(exit_code: i32) {
     drop(task);
     // we do not have to save task context
     let mut _unused = TaskContext::zero_init();
+    // 触发调度（任务切换），由于我们再也不会回到该进程，因此不需要关心上下文的保存
     schedule(&mut _unused as *mut _);
 }
 

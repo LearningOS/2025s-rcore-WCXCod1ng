@@ -9,9 +9,10 @@ use crate::sync::UPSafeCell;
 use alloc::vec::Vec;
 use lazy_static::*;
 
+/// 用于分配进程标识符，使用简单的栈式分配策略（同物理页帧分配器）
 pub struct RecycleAllocator {
     current: usize,
-    recycled: Vec<usize>,
+    recycled: Vec<usize>, // 存放已经被回收的pid
 }
 
 impl RecycleAllocator {
@@ -22,7 +23,7 @@ impl RecycleAllocator {
         }
     }
     pub fn alloc(&mut self) -> usize {
-        if let Some(id) = self.recycled.pop() {
+        if let Some(id) = self.recycled.pop() { // 优先从已经被回收的pid中找
             id
         } else {
             self.current += 1;
@@ -63,24 +64,28 @@ pub fn pid_alloc() -> PidHandle {
 }
 
 /// Return (bottom, top) of a kernel stack in kernel space.
+/// 由于我们已经规划好了所有app对应的位置，这里就可以简单映射
 pub fn kernel_stack_position(app_id: usize) -> (usize, usize) {
-    let top = TRAMPOLINE - app_id * (KERNEL_STACK_SIZE + PAGE_SIZE);
+    let top = TRAMPOLINE - app_id * (KERNEL_STACK_SIZE + PAGE_SIZE); // 这里额外加上一个页的大小，是因为我们在多个进程的内核栈之间使用一个页进行分割，这里的TRAMPOLINE是最高位一页的起始地址
     let bottom = top - KERNEL_STACK_SIZE;
-    (bottom, top)
+    (bottom, top) // 实际上是[bottom, top)的地址范围
 }
 
 /// Kernel stack for a process(task)
 pub struct KernelStack(pub usize);
 
 /// allocate a new kernel stack
+/// 这里不需要传入pid，是因为该函数在分配内核栈空间时，就已经为其分配了一个id，这个id就是pid
 pub fn kstack_alloc() -> KernelStack {
     let kstack_id = KSTACK_ALLOCATOR.exclusive_access().alloc();
     let (kstack_bottom, kstack_top) = kernel_stack_position(kstack_id);
+    // 为内核地址空间增加一个逻辑段
     KERNEL_SPACE.exclusive_access().insert_framed_area(
         kstack_bottom.into(),
         kstack_top.into(),
         MapPermission::R | MapPermission::W,
     );
+    // 内核栈包装的数字，可以唯一标识它，同时也是唯一标识进程的pid
     KernelStack(kstack_id)
 }
 

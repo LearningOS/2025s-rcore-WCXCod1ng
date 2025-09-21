@@ -83,6 +83,7 @@ impl MemorySet {
         self.areas.push(map_area);
     }
     /// Mention that trampoline is not collected by areas.
+    /// trampoline没有从area中管理，它是需要单独处理的
     fn map_trampoline(&mut self) {
         self.page_table.map(
             VirtAddr::from(TRAMPOLINE).into(),
@@ -233,14 +234,16 @@ impl MemorySet {
             elf.header.pt2.entry_point() as usize,
         )
     }
+
+    /// 增加一个辅助函数，用于拷贝一份MemorySet（注意数据也需要copy）
     /// Create a new address space by copy code&data from a exited process's address space.
     pub fn from_existed_user(user_space: &Self) -> Self {
         let mut memory_set = Self::new_bare();
-        // map trampoline
+        // map trampoline，这是因为它不被areas管理，所以需要单独处理（也即单独映射过去）
         memory_set.map_trampoline();
         // copy data sections/trap_context/user_stack
-        for area in user_space.areas.iter() {
-            let new_area = MapArea::from_another(area);
+        for area in user_space.areas.iter() { // 遍历每个逻辑段
+            let new_area = MapArea::from_another(area); // 都进行拷贝，并加入新的memory_set中
             memory_set.push(new_area, None);
             // copy data from another space
             for vpn in area.vpn_range {
@@ -300,6 +303,84 @@ impl MemorySet {
             false
         }
     }
+
+    /// 实现mmap
+    pub fn mmap(
+        &mut self,
+        start: VirtAddr,
+        end: VirtAddr,
+        perm: MapPermission,
+    ) -> Result<(), ()> {
+        let start_vpn = start.floor();
+        let end_vpn = end.ceil();
+        if start_vpn > end_vpn {
+            return Err(())
+        }
+
+        let new_vpn_range = VPNRange::new(start_vpn, end_vpn);
+
+        // 1. Check for conflicts with existing MapAreas ---
+        if self.areas.iter().any(|area| area.overlaps(&new_vpn_range)) {
+            // warn!("mmap failed: requested area conflicts with an existing MapArea.");
+            return Err(());
+        }
+
+        // 2. Create and push the new MapArea ---
+        self.insert_framed_area(start, end, perm);
+
+        Ok(())
+    }
+
+    /// 实现munmap
+    pub fn munmap(&mut self, start: VirtAddr, end: VirtAddr) -> Result<(), ()> {
+        let start_vpn = start.floor();
+        let end_vpn = end.ceil();
+
+        if start_vpn > end_vpn {
+            return Err(());
+        }
+
+        let vpn_range = VPNRange::new(start_vpn, end_vpn);
+
+        // 考虑在区间[start_vpn, end_vpn)区间内的是所有逻辑段
+        let mut target_areas = self.areas.iter_mut()
+            .filter(|area| { area.belongs_to(&vpn_range) })
+            .collect::<Vec<_>>();
+
+        // 按照start升序
+        target_areas.sort_unstable_by_key(|area| {
+            area.vpn_range.get_start()
+        });
+
+        // 预运行并检验
+        let mut cur_vpn = start_vpn;
+        for area in target_areas.iter() {
+            if area.vpn_range.get_start() == cur_vpn {
+                // 匹配，释放并移动到下一个
+                cur_vpn = area.vpn_range.get_end();
+                // area.unmap(&mut self.page_table);
+            } else if area.vpn_range.get_start() < cur_vpn {
+                // 说明存在重复的（遇到了已经unmap过的）
+                return Err(());
+            } else {
+                // 由于已经排序，所以只可能是中间有空隙，也返回Err
+                return Err(())
+            }
+        }
+        if cur_vpn != end_vpn { // 最右侧存在空隙的
+            return Err(());
+        }
+
+        // 到此说明全部通过，可以正常map
+        for area in target_areas {
+            area.unmap(&mut self.page_table);
+        }
+        // 从areas中移除
+        self.areas.retain(|area|{!area.belongs_to(&vpn_range)});
+
+        Ok(())
+    }
+
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {
@@ -325,6 +406,8 @@ impl MapArea {
             map_perm,
         }
     }
+
+    /// 增加辅助函数：用于拷贝MemoryArea
     pub fn from_another(another: &Self) -> Self {
         Self {
             vpn_range: VPNRange::new(another.vpn_range.get_start(), another.vpn_range.get_end()),
@@ -399,6 +482,16 @@ impl MapArea {
             }
             current_vpn.step();
         }
+    }
+
+    /// 检查当前逻辑段是否与指定虚拟页号区间存在交集
+    pub fn overlaps(&self, vpnrange: &VPNRange) -> bool {
+        self.vpn_range.get_start() < vpnrange.get_end() && vpnrange.get_start() < self.vpn_range.get_end()
+    }
+
+    /// 检查当前逻辑段是否属于指定的虚拟页号区间
+    pub fn belongs_to(&self, other: &VPNRange) -> bool {
+        self.vpn_range.get_start() >= other.get_start() && self.vpn_range.get_end() <= other.get_end()
     }
 }
 

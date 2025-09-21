@@ -11,6 +11,7 @@ use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::sync::Arc;
 use lazy_static::*;
+use crate::mm::MemorySet;
 
 /// Processor management structure
 pub struct Processor {
@@ -36,6 +37,7 @@ impl Processor {
     }
 
     ///Get current task in moving semanteme
+    /// take之后，Option的值从Some变成None
     pub fn take_current(&mut self) -> Option<Arc<TaskControlBlock>> {
         self.current.take()
     }
@@ -52,6 +54,7 @@ lazy_static! {
 
 ///The main part of process execution and scheduling
 ///Loop `fetch_task` to get the process that needs to run, and switch the process through `__switch`
+/// NOTE 我们现在需要将其进行修改，使得它能够实现stride调度算法
 pub fn run_tasks() {
     loop {
         let mut processor = PROCESSOR.exclusive_access();
@@ -101,6 +104,7 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 }
 
 ///Return to idle control flow for new scheduling
+/// 传入的上下文是需要保存的上下文（也即当前正在执行的进程的上下文）
 pub fn schedule(switched_task_cx_ptr: *mut TaskContext) {
     let mut processor = PROCESSOR.exclusive_access();
     let idle_task_cx_ptr = processor.get_idle_task_cx_ptr();
@@ -108,4 +112,14 @@ pub fn schedule(switched_task_cx_ptr: *mut TaskContext) {
     unsafe {
         __switch(switched_task_cx_ptr, idle_task_cx_ptr);
     }
+}
+
+/// 对当前任务的memory_set执行某种操作
+pub fn map_memory_set<F, V>(mut f: F) -> V
+where F: FnMut(&mut MemorySet) -> V
+{
+    let current = current_task().unwrap();
+    // TASK_MANAGER.with_map(f)
+    let mut inner = current.inner_exclusive_access();
+    f(&mut inner.memory_set)
 }

@@ -32,7 +32,7 @@ pub fn sys_read(fd: usize, buf: *const u8, len: usize) -> isize {
             loop {
                 c = console_getchar();
                 if c == 0 {
-                    suspend_current_and_run_next();
+                    suspend_current_and_run_next(); // 这样的机制实际上是IO轮询机制（适合键盘、鼠标这种慢速设备）
                     continue;
                 } else {
                     break;
