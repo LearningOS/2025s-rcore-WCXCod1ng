@@ -64,6 +64,12 @@ pub struct TaskControlBlockInner {
 
     /// It is set when active exit or execution error occurs
     pub exit_code: i32,
+
+    /// 该进程打开的文件所对应的文件描述符，每当需要操作指定的文件时，就需要使用Vec中的一项（一个文件描述符唯一表示了一个文件）
+    /// Option 使得我们可以区分一个文件描述符当前是否空闲，当它是 None 的时候是空闲的，而 Some 则代表它已被占用
+    /// 首先提供了共享引用能力。后面我们会提到，可能会有多个进程共享同一个文件对它进行读写。此外被它包裹的内容会被放到内核堆而不是栈上，于是它便不需要在编译期有着确定的大小
+    /// dyn 关键字表明 Arc 里面的类型实现了 File/Send/Sync 三个 Trait ，但是编译期无法知道它具体是哪个类型（可能是任何实现了 File Trait 的类型如 Stdin/Stdout ，故而它所占的空间大小自然也无法确定），需要等到运行时才能知道它的具体类型
+    /// 将来可以通过下标来访问文件描述符表中的元素，所以这样的“下标”也被称为**文件描述符**
     pub fd_table: Vec<Option<Arc<dyn File + Send + Sync>>>,
 
     /// Heap bottom
@@ -125,7 +131,7 @@ impl TaskControlBlock {
                     parent: None,
                     children: Vec::new(),
                     exit_code: 0,
-                    fd_table: vec![
+                    fd_table: vec![ // 为一个新的进程打开标准输入/输出/错误
                         // 0 -> stdin
                         Some(Arc::new(Stdin)),
                         // 1 -> stdout
@@ -193,6 +199,7 @@ impl TaskControlBlock {
         let kernel_stack_top = kernel_stack.get_top();
         // copy fd table
         let mut new_fd_table: Vec<Option<Arc<dyn File + Send + Sync>>> = Vec::new();
+        // 在 fork 时，子进程需要完全继承父进程的文件描述符表来和父进程共享所有文件。这样，即使我们仅手动为初始进程 initproc 打开了标准输入输出，所有进程也都可以访问它们
         for fd in parent_inner.fd_table.iter() {
             if let Some(file) = fd {
                 new_fd_table.push(Some(file.clone()));

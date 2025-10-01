@@ -54,8 +54,10 @@ pub fn sys_exec(path: *const u8) -> isize {
     trace!("kernel:pid[{}] sys_exec", current_task().unwrap().pid.0);
     let token = current_user_token();
     let path = translated_str(token, path);
+    // 在有了文件系统支持之后，我们在 sys_exec 所需的应用的 ELF 文件格式的数据就不再需要通过应用加载器从内核的数据段获取，而是从文件系统中获取，这样内核与应用的代码/数据就解耦了
     if let Some(app_inode) = open_file(path.as_str(), OpenFlags::RDONLY) {
         let all_data = app_inode.read_all();
+        // 解析完毕并创建完应用地址空间后该向量将会被回收
         let task = current_task().unwrap();
         task.exec(all_data.as_slice());
         0

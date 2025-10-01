@@ -1,5 +1,5 @@
 //!Stdin & Stdout
-use super::File;
+use super::{File, Stat, StatMode};
 use crate::mm::UserBuffer;
 use crate::sbi::console_getchar;
 use crate::task::suspend_current_and_run_next;
@@ -17,7 +17,7 @@ impl File for Stdin {
     fn writable(&self) -> bool {
         false
     }
-    fn read(&self, mut user_buf: UserBuffer) -> usize {
+    fn read(&self, mut user_buf: UserBuffer) -> usize { // 这里实现的只是每次只读一个字符
         assert_eq!(user_buf.len(), 1);
         // busy loop
         let mut c: usize;
@@ -39,6 +39,10 @@ impl File for Stdin {
     fn write(&self, _user_buf: UserBuffer) -> usize {
         panic!("Cannot write to stdin!");
     }
+
+    fn stat(&self) -> Stat {
+        Stat::new(0, StatMode::FILE, 1)
+    }
 }
 
 impl File for Stdout {
@@ -52,9 +56,13 @@ impl File for Stdout {
         panic!("Cannot read from stdout!");
     }
     fn write(&self, user_buf: UserBuffer) -> usize {
-        for buffer in user_buf.buffers.iter() {
+        for buffer in user_buf.buffers.iter() { // 不断调用print!打印每个字符
             print!("{}", core::str::from_utf8(*buffer).unwrap());
         }
         user_buf.len()
+    }
+
+    fn stat(&self) -> Stat {
+        Stat::new(0, StatMode::FILE, 1)
     }
 }

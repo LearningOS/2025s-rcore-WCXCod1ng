@@ -160,6 +160,7 @@ impl MemorySet {
             None,
         );
         info!("mapping memory-mapped registers");
+        // 让内核以直接访问的形式访问这些特殊的内存（用于MMIO）
         for pair in MMIO {
             memory_set.push(
                 MapArea::new(

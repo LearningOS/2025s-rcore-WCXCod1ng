@@ -220,6 +220,8 @@ pub fn translated_refmut<T>(token: usize, ptr: *mut T) -> &'static mut T {
 }
 
 /// An abstraction over a buffer passed from user space to kernel space
+///
+/// UserBuffer 是我们在 mm 子模块中定义的应用地址空间中的一段缓冲区（即内存）的抽象。它的具体实现在本质上其实只是一个 &[u8]
 pub struct UserBuffer {
     /// A list of buffers
     pub buffers: Vec<&'static mut [u8]>,

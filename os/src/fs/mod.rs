@@ -6,6 +6,8 @@ mod stdio;
 use crate::mm::UserBuffer;
 
 /// trait File for all file types
+///
+/// 这个接口在内存和存储设备之间建立了数据交换的通道
 pub trait File: Send + Sync {
     /// the file readable?
     fn readable(&self) -> bool;
@@ -15,6 +17,8 @@ pub trait File: Send + Sync {
     fn read(&self, buf: UserBuffer) -> usize;
     /// write to the file from buf, return the number of bytes written
     fn write(&self, buf: UserBuffer) -> usize;
+    /// 提供获取元信息的接口
+    fn stat(&self) -> Stat;
 }
 
 /// The stat of a inode
@@ -33,6 +37,18 @@ pub struct Stat {
     pad: [u64; 7],
 }
 
+impl Stat {
+    fn new(ino: u64, mode: StatMode, nlink: u32) -> Self {
+        Self {
+            dev: 0,
+            ino,
+            mode,
+            nlink,
+            pad: [0; 7],
+        }
+    }
+}
+
 bitflags! {
     /// The mode of a inode
     /// whether a directory or a file
@@ -46,5 +62,5 @@ bitflags! {
     }
 }
 
-pub use inode::{list_apps, open_file, OSInode, OpenFlags};
+pub use inode::{list_apps, open_file, linkat, unlinkat, OSInode, OpenFlags};
 pub use stdio::{Stdin, Stdout};

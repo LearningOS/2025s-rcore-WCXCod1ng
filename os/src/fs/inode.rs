@@ -4,7 +4,7 @@
 //!
 //! `UPSafeCell<OSInodeInner>` -> `OSInode`: for static `ROOT_INODE`,we
 //! need to wrap `OSInodeInner` into `UPSafeCell`
-use super::File;
+use super::{File, Stat, StatMode};
 use crate::drivers::BLOCK_DEVICE;
 use crate::mm::UserBuffer;
 use crate::sync::UPSafeCell;
@@ -17,6 +17,8 @@ use lazy_static::*;
 /// inode in memory
 /// A wrapper around a filesystem inode
 /// to implement File trait atop
+///
+/// 站在用户的角度看来，在一个进程中可以使用多种不同的标志来打开一个文件，这会影响到打开的这个文件可以用何种方式被访问。此外，在连续调用 sys_read/write 读写一个文件的时候，我们知道进程中也存在着一个文件读写的当前偏移量，它也随着文件读写的进行而被不断更新。这些用户视角中的文件系统抽象特征需要内核来实现，与进程有很大的关系，而 easy-fs 文件系统不必涉及这些与进程结合紧密的属性。因此，我们需要将 easy-fs 提供的 Inode 加上上述信息，进一步封装为 OS 中的索引节点 OSInode
 pub struct OSInode {
     readable: bool,
     writable: bool,
@@ -24,7 +26,7 @@ pub struct OSInode {
 }
 /// The OS inode inner in 'UPSafeCell'
 pub struct OSInodeInner {
-    offset: usize,
+    offset: usize, // sys_read/write期间维护的偏移量offset，表示当前操作到了哪个字节偏移位置
     inode: Arc<Inode>,
 }
 
@@ -57,7 +59,9 @@ impl OSInode {
 
 lazy_static! {
     pub static ref ROOT_INODE: Arc<Inode> = {
+        // 从块设备 BLOCK_DEVICE 上打开文件系统
         let efs = EasyFileSystem::open(BLOCK_DEVICE.clone());
+        // 从文件系统中获取根目录的 inode
         Arc::new(EasyFileSystem::root_inode(&efs))
     };
 }
@@ -103,6 +107,7 @@ impl OpenFlags {
 
 /// Open a file
 pub fn open_file(name: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
+    trace!("/*** Opening file {}", name);
     let (readable, writable) = flags.read_write();
     if flags.contains(OpenFlags::CREATE) {
         if let Some(inode) = ROOT_INODE.find(name) {
@@ -125,6 +130,35 @@ pub fn open_file(name: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
     }
 }
 
+/// sys_linkat的实现：为old_name生成一个新的硬链接，硬链接的路径为new_name
+pub fn linkat<'a>(old_path: &'a str, new_path: &'a str) -> isize {
+    trace!("/*** Linkat *** {}, {}", old_path, new_path);
+    // 1. 搜索old_name对应的路径，找到其inode
+    // 由于扁平化的设计，这里只需要在ROOT_INODE中查找即可
+    if let Some(old_inode) = ROOT_INODE.find(old_path) {
+        // 2. 搜索new_name，同样由于扁平化设计，这里已经可以确认是ROOT_INODE
+        let res = ROOT_INODE.add_link(new_path, Arc::clone(&old_inode));
+        res
+    } else {
+        // 搜索不到说明old_name不存在，返回-1
+        -1
+    }
+}
+
+/// sys_unlinkat的实现：将name对应的硬链接unlink
+pub fn unlinkat(path: &str) -> isize {
+    trace!("/*** Unlinkat *** {}", path);
+    // 1. 获取path对应的文件的目录
+    // 由于扁平化的设计，这里的目录永远是ROOT_INODE
+    let parent_inode = &ROOT_INODE;
+    // 2. 查询path对应的文件名name，由于扁平化设计，name就是path
+    let name = path;
+    // 进行实际的unlinkat
+    parent_inode.remove_link(name)
+}
+
+
+/// 在 read/write 的全程需要获取 OSInode 的互斥锁，保证两个进程无法同时访问同个文件
 impl File for OSInode {
     fn readable(&self) -> bool {
         self.readable
@@ -155,5 +189,24 @@ impl File for OSInode {
             total_write_size += write_size;
         }
         total_write_size
+    }
+
+    fn stat(&self) -> Stat {
+        let inner = self.inner.exclusive_access();
+        let ino =  inner.inode.inode_id();
+        trace!("/*** Stat *** inode_id = {}", ino);
+
+        let stat_mode = if inner.inode.is_dir() {
+            StatMode::DIR
+        } else if inner.inode.is_file() {
+            StatMode::FILE
+        } else {
+            StatMode::NULL
+        };
+
+        let nlink = inner.inode.nlink();
+        let stat = Stat::new(ino as u64, stat_mode, nlink);
+
+        stat
     }
 }

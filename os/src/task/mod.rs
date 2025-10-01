@@ -109,6 +109,8 @@ lazy_static! {
     ///
     /// the name "initproc" may be changed to any other app name like "usertests",
     /// but we have user_shell, so we don't need to change it.
+    /// 
+    /// 在内核中创建初始进程 initproc 也需要替换为基于文件系统的实现
     pub static ref INITPROC: Arc<TaskControlBlock> = Arc::new({
         let inode = open_file("ch6b_initproc", OpenFlags::RDONLY).unwrap();
         let v = inode.read_all();
