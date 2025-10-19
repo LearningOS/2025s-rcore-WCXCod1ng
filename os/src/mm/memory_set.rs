@@ -96,6 +96,7 @@ impl MemorySet {
     }
     /// Mention that trampoline is not collected by areas.
     fn map_trampoline(&mut self) {
+        // 这里实际上就是吧TRAMPOLINE指示的虚拟地址（所在的页）映射到了strampoline这个代码段的位置，而这个代码段存放的就是__alltraps的处理逻辑（trap.S），于是将来发生trap的时候，stevc的内容是TRAMPOLINE，因此就实际执行了__alltraps的代码
         self.page_table.map(
             VirtAddr::from(TRAMPOLINE).into(),
             PhysAddr::from(strampoline as usize).into(),

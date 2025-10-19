@@ -69,6 +69,10 @@ pub fn add_task(task: Arc<TaskControlBlock>) {
 }
 
 /// Wake up a task
+/// 
+/// 将其修改回Ready状态，并且重新添加回就绪队列
+/// 
+/// *这里实际上是一个简单实现，实际的实现中：会根据阻塞的原因将阻塞线程归类到不同的就绪队列中，而唤醒的时候也会根据阻塞的原因进行唤醒*
 pub fn wakeup_task(task: Arc<TaskControlBlock>) {
     trace!("kernel: TaskManager::wakeup_task");
     let mut task_inner = task.inner_exclusive_access();

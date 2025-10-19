@@ -37,7 +37,7 @@ __alltraps:
     ld t1, 36*8(sp)
     # move to kernel_sp
     ld sp, 35*8(sp)
-    # switch to kernel space
+    # switch to kernel space，这里非常关键，只有执行到这里之后，才会实际进入内核
     csrw satp, t0
     sfence.vma
     # jump to trap_handler

@@ -7,6 +7,9 @@ use crate::{
     },
 };
 use alloc::{string::String, sync::Arc, vec::Vec};
+use core::mem;
+use crate::mm::translated_byte_buffer;
+use crate::timer::get_time_us;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -152,11 +155,36 @@ pub fn sys_kill(pid: usize, signal: u32) -> isize {
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
 pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
-        current_task().unwrap().process.upgrade().unwrap().getpid()
-    );
-    -1
+    trace!("kernel: sys_get_time");
+    let size = mem::size_of::<TimeVal>();
+    // 获取时间戳，构造TimeVal
+    let ts = get_time_us();
+    let kernel_tv = TimeVal {
+        sec: ts / 1_000_000,
+        usec: ts % 1_000_000,
+    };
+    // 将TimeVal其转化为字节数组
+    let src_buffer: &[u8] = unsafe {
+        // 这个unsafe是安全的，因为我们只是创建了一个临时的、只读的
+        // 字节视图来查看栈上有效的`kernel_tv`变量。
+        core::slice::from_raw_parts(&kernel_tv as *const _ as *const u8, size)
+    };
+    // let page_table = PageTable::from_token(current_user_token());
+    // let ptr = _ts as usize;
+    // let vpn = VirtAddr::from(ptr).floor();
+    // let ppn = page_table.translate(vpn).unwrap().ppn();
+    // 将虚拟地址解析为物理地址（实际上可以写入的切片数组）
+    let dest_buffers = translated_byte_buffer(current_user_token(), _ts as *const u8, size);
+
+    // 执行写入操作
+    let mut current_pos = 0;
+    for dest in dest_buffers {
+        let slice_len = dest.len();
+        dest.copy_from_slice(&src_buffer[current_pos..(current_pos + slice_len)]);
+        current_pos += slice_len;
+    }
+
+    0
 }
 
 /// mmap syscall

@@ -39,6 +39,8 @@ pub fn set_next_trigger() {
 }
 
 /// condvar for timer
+///
+/// 这里是为了支持阻塞式sleep，唤醒的条件就是超时时间
 pub struct TimerCondVar {
     /// The time when the timer expires, in milliseconds
     pub expire_ms: usize,
@@ -53,7 +55,7 @@ impl PartialEq for TimerCondVar {
 }
 impl Eq for TimerCondVar {}
 impl PartialOrd for TimerCondVar {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { // 超时时间越小越优先（Rust默认是大根堆，所以通过加负号来实现小根堆）
         let a = -(self.expire_ms as isize);
         let b = -(other.expire_ms as isize);
         Some(a.cmp(&b))
@@ -68,11 +70,15 @@ impl Ord for TimerCondVar {
 
 lazy_static! {
     /// TIMERS: global instance: set of timer condvars
+    ///
+    /// 实际我们将其组织成一个小根堆来优化（不用每次就全盘遍历，而是直接从堆顶弹出）
     static ref TIMERS: UPSafeCell<BinaryHeap<TimerCondVar>> =
         unsafe { UPSafeCell::new(BinaryHeap::<TimerCondVar>::new()) };
 }
 
 /// Add a timer
+/// 
+/// 根据传入的超时时间增加一个TimerConVar并加到全局堆中
 pub fn add_timer(expire_ms: usize, task: Arc<TaskControlBlock>) {
     trace!(
         "kernel:pid[{}] add_timer",
@@ -106,8 +112,10 @@ pub fn check_timer() {
     );
     let current_ms = get_time_ms();
     let mut timers = TIMERS.exclusive_access();
+    // 由于堆顶的优先超时，所以不断弹出堆顶，直到没有超时的
     while let Some(timer) = timers.peek() {
         if timer.expire_ms <= current_ms {
+            // 调用 wakeup_task 唤醒超时线程
             wakeup_task(Arc::clone(&timer.task));
             timers.pop();
         } else {

@@ -120,6 +120,8 @@ pub fn current_kstack_top() -> usize {
 }
 
 /// Return to idle control flow for new scheduling
+///
+/// 将当前线程的内核态上下文保存指定位置，并切换到调度主循环
 pub fn schedule(switched_task_cx_ptr: *mut TaskContext) {
     let mut processor = PROCESSOR.exclusive_access();
     let idle_task_cx_ptr = processor.get_idle_task_cx_ptr();

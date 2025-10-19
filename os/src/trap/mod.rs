@@ -40,12 +40,14 @@ fn set_kernel_trap_entry() {
         fn __trap_from_kernel();
     }
     unsafe {
+        // 这里将
         stvec::write(__trap_from_kernel as usize, TrapMode::Direct);
     }
 }
 /// set trap entry for traps happen in user mode
 fn set_user_trap_entry() {
     unsafe {
+        // 给stevc写入地址为TRAMPOLINE表明当在用户态下发生trap时，会跳转到TRAMPOLINE地址处
         stvec::write(TRAMPOLINE as usize, TrapMode::Direct);
     }
 }
@@ -94,6 +96,7 @@ pub fn trap_handler() -> ! {
         }
         Trap::Interrupt(Interrupt::SupervisorTimer) => {
             set_next_trigger();
+            // 每当时钟中断来临时，就检查一遍有没有超时的睡眠线程，如果有就唤醒（这是一种较为粗略的实现，但是误差也不会太大）
             check_timer();
             suspend_current_and_run_next();
         }

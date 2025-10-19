@@ -3,6 +3,7 @@
 use crate::sync::UPSafeCell;
 use crate::task::{block_current_and_run_next, current_task, wakeup_task, TaskControlBlock};
 use alloc::{collections::VecDeque, sync::Arc};
+use alloc::vec::Vec;
 
 /// semaphore structure
 pub struct Semaphore {
@@ -51,5 +52,20 @@ impl Semaphore {
             drop(inner);
             block_current_and_run_next();
         }
+    }
+
+
+    /// 获取count字段的数量，它的含义是：如果大于等于0，则表示资源的数量；否则表示阻塞队列的中的线程的数量
+    pub fn count(&self) -> isize {
+        self.inner.exclusive_access().count
+    }
+
+    /// 返回该semaphore阻塞的所有线程的tid
+    pub fn blocked_tids(&self) -> Vec<usize> {
+        let inner = self.inner.exclusive_access();
+        let res = inner.wait_queue.iter()
+            .map(|x| x.get_tid())
+            .collect::<Vec<_>>();
+        res
     }
 }

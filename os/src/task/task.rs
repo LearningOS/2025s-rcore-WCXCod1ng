@@ -8,10 +8,12 @@ use alloc::sync::{Arc, Weak};
 use core::cell::RefMut;
 
 /// Task control block structure
+/// 现在复制控制线程，即TCB
 pub struct TaskControlBlock {
     /// immutable
     pub process: Weak<ProcessControlBlock>,
     /// Kernel stack corresponding to PID
+    /// 现在它成了线程独占的资源：每个线程都会占据一个内核栈
     pub kstack: KernelStack,
     /// mutable
     inner: UPSafeCell<TaskControlBlockInner>,
@@ -31,8 +33,10 @@ impl TaskControlBlock {
 }
 
 pub struct TaskControlBlockInner {
+    /// 每个线程的用户栈上下文也独立，它被存放到TaskUserRes中
     pub res: Option<TaskUserRes>,
     /// The physical page number of the frame where the trap context is placed
+    /// 每个线程的trap上下文也都独立。它在所属进程的地址空间中的位置可由 TID 计算得到
     pub trap_cx_ppn: PhysPageNum,
     /// Save task context
     pub task_cx: TaskContext,
@@ -56,13 +60,18 @@ impl TaskControlBlockInner {
 
 impl TaskControlBlock {
     /// Create a new task
+    ///
+    /// 分配一个新的内核栈，根据需要分配用户资源（用户栈、trap上下文、tid）。
+    /// 传入的ustack_base是该进程地址空间中的栈的起始位置，该线程的栈的位置需要依靠这个ustack_base和tid计算得到
     pub fn new(
         process: Arc<ProcessControlBlock>,
         ustack_base: usize,
         alloc_user_res: bool,
     ) -> Self {
+        // 用户资源可以不分配
         let res = TaskUserRes::new(Arc::clone(&process), ustack_base, alloc_user_res);
         let trap_cx_ppn = res.trap_cx_ppn();
+        // 内核栈无论如何都是要分配的
         let kstack = kstack_alloc();
         let kstack_top = kstack.get_top();
         Self {
@@ -78,6 +87,12 @@ impl TaskControlBlock {
                 })
             },
         }
+    }
+
+    /// 获取tid
+    pub fn get_tid(&self) -> usize {
+        let inner = self.inner_exclusive_access();
+        inner.res.as_ref().unwrap().tid
     }
 }
 
